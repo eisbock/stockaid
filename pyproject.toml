@@ -1,0 +1,13 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "stockaid"
+authors = [{name = "Jesse Dutton", email = "jessedutton@gmail.com"}]
+license = {file = "LICENSE"}
+classifiers = ["License :: OSI Approved :: Apache Software License","Development Status :: 3 - Alpha","Topic :: Office/Business :: Financial :: Investment","Topic :: Software Development :: Libraries :: Python Modules","Topic :: Scientific/Engineering :: Artificial Intelligence"]
+dynamic = ["version", "description"]
+
+[project.urls]
+Home = "https://github.com/eisbock/stockaid"
