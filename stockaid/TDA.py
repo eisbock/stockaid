@@ -83,7 +83,7 @@ import pandas as pd
 # regularMarketPercentChangeInDouble regularMarketTradeTimeInLong
 # securityStatus shortable symbol totalVolume tradeTimeInLong volatility
 def pandify_quote(resp):
-    return pd.read_json(resp, orient='records', convert_dates=False)
+    return pd.read_json(resp, orient='index', convert_dates=False)
 
 
 # columns=['datetime','open','close','high','low','volume']
