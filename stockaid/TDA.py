@@ -138,7 +138,7 @@ def pandify_chains(resp):
 
 
 def register_TDA(cache):
-    throt = LazyTokenBucket(120)
+    throt = LazyTokenBucket(119)
     cache.register_provider('TDA',
                        'https://api.tdameritrade.com/v1/marketdata/', throt)
     cache.register_api('TDA', 'quote', '{symbol}/quotes', 'symbol',
