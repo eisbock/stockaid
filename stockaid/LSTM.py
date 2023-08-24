@@ -56,9 +56,7 @@ class LSTMHistory:
        the mean from the floats in that data point. Since this is a linear
        modification, the percentages used to evaluate the test data are not
        altered, so the scaling factors for the data points used to train do not
-       need to be stored. By default, data more than 5.0 times the mean will
-       not be included in the fit or test sets. You can adjust this parameter
-       (called clip) as you see fit.
+       need to be stored.
 
        Some of the data in the set will not have a future value to train on.
        These are the data points where the look_ahead range is partially or
@@ -126,8 +124,15 @@ class LSTMHistory:
         self.lval = {}
 
 
+    def _ascale(self, x, m):
+        return ((x / m) - 1.0) * 5.0
+
+    def _aunscale(self, x, m):
+        return ((x / 5.0) + 1.0) * m
+
     def ingest(self, df, tag, date_col='datetime', val_col='close',
-               future_algo=Future.FUTURE_DEFAULT, clip=5.0):
+               future_algo=Future.FUTURE_DEFAULT, train_min=10.0,
+               train_max=300.0):
         """
            Adds a pandas DataFrame to the data set, along with a tag. If this
            function is called multiple times, the multiple DataFrames are added
@@ -146,10 +151,8 @@ class LSTMHistory:
                For use with TDA history, the val_col will map to an appropriate
                future_algo automatically. To make a manual choice, choose from
                the Future enum values.
-           :param clip: the limit for valid values in training data. After
-               scaling, sets that contain a value above this are omitted. Since
-               scaling divides by the mean, the default means that the lookback
-               period contains a value that is 5x the mean.
+           :param train_min: the smallest mean price of examples to use in training
+           :param train_max: the largest mean price of examples to use in training
            :raises ValueError: if tag is missing, if either date_col or val_col
                are not valid, or if the data set has too few rows to
                accommodate the look_back and look_ahead.
@@ -189,10 +192,11 @@ class LSTMHistory:
             fy = []
             for i in range(lb, len(s) - la):
                 # scale each history / future independent of the others
-                x = s[i-lb:i+la]    # mixed data, history and future
-                m = np.mean(x)
-                x = x / m
-                if np.amax(x) > clip:
+                x = s[i-lb+1:i+la+1]    # mixed data, history and future
+                #m = np.mean(x)
+                m = s[i]
+                x = self._ascale(x,m)
+                if np.amax(x) > 1.0 or np.amin(x) < -1.0 or m < train_min or m > train_max:
                     continue
                 y = future_val(x[lb:], future_algo)
                 x = x[:lb]
@@ -216,18 +220,18 @@ class LSTMHistory:
             if start < 0:
                 start = 0
             x = s[start:]
-            self.scale[tag] = np.mean(x)
-            x = x / self.scale[tag]
+            #self.scale[tag] = np.mean(x)
+            self.scale[tag] = s[-1]    # the last val
+            x = self._ascale(x, self.scale[tag])
 
             # now reshape the data as a series of lb-sized histories
             f = np.array([])
             for i in range(lb, len(x)):
-                f = np.append(f, x[i-lb:i])
+                f = np.append(f, x[i-lb+1:i+1])
             self.future[tag] = f.reshape(len(x)-lb, lb)
 
 
-    def ingest_symbol(self, symbol, period, ptype, freq_type, val_col='close',
-                      clip=5.0):
+    def ingest_symbol(self, symbol, period, ptype, freq_type, val_col='close'):
         """Fetch a stock symbol using TDA history, then ingest. If the cache
            needs to refresh this historical data, it will require the TDA api
            key. See the get_cache() function for more details.
@@ -237,7 +241,6 @@ class LSTMHistory:
            :param ptype: the periodType argument to TDA history.
            :param freq_type: the frequencyType argument to TDA history.
            :param val_col: passed through to ingest().
-           :param clip: passed through to ingest().
            :raises ValueError: if the val_col is not valid or the data set has
                too few rows to accommodate the look_back and look_ahead.
         """
@@ -245,11 +248,11 @@ class LSTMHistory:
         hist = _stockaid_cache.api('TDA', 'history', symbol=symbol,
                                    periodType=ptype, period=period,
                                    frequencyType=freq_type)
-        self.ingest(hist, symbol, val_col=val_col, clip=clip)
+        self.ingest(hist, symbol, val_col=val_col)
 
 
     def ingest_index(self, index, period, ptype, freq_type, val_col='close',
-                     clip=5.0, omit=[], quiet=False):
+                     omit=[], quiet=False):
         """Fetch each stock symbol in a given index registered with the cache.
            The stock histories are fetched using the TDA history api. During
            ingest(), the symbol name is used as the tag. If the cache needs to
@@ -261,7 +264,6 @@ class LSTMHistory:
            :param ptype: the periodType argument to TDA history.
            :param freq_type: the frequencyType argument to TDA history.
            :param val_col: passed through to ingest().
-           :param clip: passed through to ingest().
            :param omit: if provided, is a list of symbols in the index to omit
            :param quiet: if True, will suppress log messages related to each
                stock that is ingested. You can also set the log level less than
@@ -275,7 +277,7 @@ class LSTMHistory:
         for symbol in idx_list:
             if symbol in omit:
                 continue
-            self.ingest_symbol(symbol, period, ptype, freq_type, val_col, clip)
+            self.ingest_symbol(symbol, period, ptype, freq_type, val_col)
             if not quiet:
                 end = datetime.now().timestamp()
                 log(2, "Ingest {} in {:.3f} seconds".format(symbol,end-ts))
@@ -318,8 +320,10 @@ class LSTMHistory:
         """
         t = self.test_y
         p = np.array(predictions).reshape(t.shape)
-        mape = np.mean(np.abs((p-t)/t))
-        mpe = np.mean((p-t)/t)
+        # these sets are already scaled so that the decimal value is a percentage
+        # so there is no need to divide by t and risk div0 errors
+        mape = np.mean(np.abs((p-t)/5.0))
+        mpe = np.mean((p-t)/5.0)
         log(2, "ML test score: MAPE={:.4f}, MPE={:.4f}".format(mape,mpe))
 
         return mape, mpe
@@ -353,7 +357,7 @@ class LSTMHistory:
         """
         if self.scale.get(tag) is None:
             return None
-        return np.array(predictions * self.scale[tag]).flatten()
+        return np.array(self._aunscale(predictions, self.scale[tag])).flatten()
 
 
     def last_val(self, tag):
